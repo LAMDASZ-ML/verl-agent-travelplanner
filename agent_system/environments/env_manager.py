@@ -4,6 +4,7 @@ import torch
 import numpy as np
 from functools import partial
 import os
+from copy import deepcopy
 from agent_system.environments.prompts import *
 from agent_system.environments.base import EnvironmentManagerBase, to_numpy
 from agent_system.memory import SimpleMemory
@@ -416,10 +417,10 @@ class AppWorldEnvironmentManager(EnvironmentManagerBase):
     def __init__(self, envs, projection_f, config):
         self.memory = SimpleMemory()
         super().__init__(envs, projection_f, config)
-    
+
     def reset(self):
         text_obs, infos = self.envs.reset()
-        
+
         self.supervisors = [info['supervisor'] for info in infos]
         self.memory.reset(batch_size = len(text_obs))
         self.tasks = text_obs.copy()
@@ -427,7 +428,7 @@ class AppWorldEnvironmentManager(EnvironmentManagerBase):
 
         full_text_obs = self.build_text_obs(text_obs, init=True)
         return {'text': full_text_obs, 'image': None, 'anchor': text_obs}, infos
-    
+
     def step(self, text_actions: List[str]):
         actions, valids = self.projection_f(text_actions)
 
@@ -447,7 +448,6 @@ class AppWorldEnvironmentManager(EnvironmentManagerBase):
         dones = to_numpy(dones)
 
         return next_observations, rewards, dones, infos
-    
 
     def build_text_obs(self, text_obs: List[str], init: bool = False) -> List[str]:
         """
@@ -476,7 +476,7 @@ class AppWorldEnvironmentManager(EnvironmentManagerBase):
                     action = record["action"]
                     env_obs = record["text_obs"]
                     action_history += f"\nCode {step_number}: \n{action}\n\nResult {step_number}: \n{env_obs}\n"
-                
+
                 if len(action_history) > 10000:
                     action_history = "... " + action_history[-10000:]
 
@@ -495,6 +495,124 @@ class AppWorldEnvironmentManager(EnvironmentManagerBase):
                 postprocess_text_obs.append(obs)
         return postprocess_text_obs
 
+
+class TravelPlannerEnvironmentManager(EnvironmentManagerBase):
+    DAY_PLAN_TEMPLATE = {
+        "days": None,
+        "current_city": "-",
+        "transportation": "-",
+        "breakfast": "-",
+        "attraction": "-",
+        "lunch": "-",
+        "dinner": "-",
+        "accommodation": "-",
+    }
+
+    def __init__(self, envs, projection_f, config):
+        self.memory = SimpleMemory()
+        self.queries = None
+        super().__init__(envs, projection_f, config)
+
+    def _generate_empty_plan(self, day_count: int) -> str:
+        """
+        Generate an empty plan for the given number of days.
+        """
+        res = []
+        for day in range(1, day_count + 1):
+            day_plan = deepcopy(self.DAY_PLAN_TEMPLATE)
+            day_plan["days"] = day
+            res.append(day_plan)
+        return str(res).replace("'", '"')  # Convert to JSON-like string format
+
+    def reset(self):
+        obs, infos = self.envs.reset()
+        self.queries = [info["info"] for info in infos]
+        self.pre_text_obs = obs
+        self.memory.reset(batch_size=len(obs))
+
+        full_text_obs = self.build_text_obs(
+            cur_obs=obs,
+            plans=[self._generate_empty_plan(query["days"]) for query in self.queries],
+            init=True,
+        )
+        return {"text": full_text_obs, "image": None, "anchor": obs}, infos
+
+    def step(self, text_actions: List[str]):
+        valids, actions, thoughts, plans = self.projection_f(text_actions)
+
+        obs, rewards, dones, infos = self.envs.step(text_actions)
+        actions = ["<action>" + action + "</action>" for action in actions]
+        self.memory.store({"text_obs": self.pre_text_obs, "action": actions})
+        self.pre_text_obs = obs
+        print(f"extract plan[0]: {plans[0]}")
+        full_text_obs = self.build_text_obs(cur_obs=obs, plans=plans, init=False)
+
+        for i, info in enumerate(infos):
+            info["format_reward"] = valids[i]
+
+        next_observations = {"text": full_text_obs, "image": None, "anchor": obs}
+
+        rewards = to_numpy(rewards)
+        rewards = rewards + to_numpy(valids)  # add 1 for valid text actions
+        dones = to_numpy(dones)
+
+        return next_observations, rewards, dones, infos
+
+    def build_text_obs(
+        self,
+        cur_obs: List[str],
+        plans: List[str],
+        init: bool = False,
+    ) -> List[str]:
+
+        if init:
+            postprocess_text_obs = [
+                TRAVELPLANNER_ZEROSHOT_REACT_INSTRUCTION.format(
+                    query=self.queries[i]["query"],
+                    plan=plans[i],
+                    history="",
+                    observation="",
+                )
+                for i in range(len(self.queries))
+            ]
+        else:
+            histories, _ = self.memory.fetch(
+                0,
+                obs_key="text_obs",
+                action_key="action",
+            )
+            postprocess_text_obs = []
+            for i in range(len(cur_obs)):
+                obs = TRAVELPLANNER_ZEROSHOT_REACT_INSTRUCTION.format(
+                    query=self.queries[i]["query"],
+                    plan=plans[i],
+                    history=histories[i],
+                    observation=cur_obs[i],
+                )
+                postprocess_text_obs.append(obs)
+        # print(f"postprocess_text_obs[0]: {postprocess_text_obs[0]}")
+        return postprocess_text_obs
+
+    def _process_batch(self, batch_idx, total_batch_list, total_infos, success):
+        for i in reversed(range(len(total_batch_list[batch_idx]))):
+            batch_item = total_batch_list[batch_idx][i]
+            if batch_item["active_masks"]:
+                info = total_infos[batch_idx][i]
+                won_value = float(info["won"])
+                valid_action_ratio = float(info["valid_action_ratio"])
+                success["success_rate"].append(won_value)
+                success["valid_action_ratio (not score or success_rate)"].append(
+                    valid_action_ratio
+                )
+                success["plan_reward (not score or success_rate)"].append(
+                    float(info["plan_reward"])
+                )
+                success["format_reward (not score or success_rate)"].append(
+                    float(info["format_reward"])
+                )
+                return
+
+
 def make_envs(config):
     """
     Create enviroments 
@@ -507,7 +625,7 @@ def make_envs(config):
         from agent_system.environments.env_package.gym_cards import build_gymcards_envs, gym_projection
         _envs = build_gymcards_envs(env_name=config.env.env_name, seed=config.env.seed, env_num=config.data.train_batch_size, group_n=group_n, is_train=True)
         _val_envs = build_gymcards_envs(env_name=config.env.env_name, seed=config.env.seed + 1000, env_num=config.data.val_batch_size, group_n=1, is_train=False)
-        
+
         projection_f = partial(gym_projection, env_name=config.env.env_name)
         envs = GymCardEnvironmentManager(_envs, projection_f, config)
         val_envs = GymCardEnvironmentManager(_val_envs, projection_f, config)
@@ -526,7 +644,7 @@ def make_envs(config):
         }
         _envs = build_alfworld_envs(alf_config_path, config.env.seed, config.data.train_batch_size, group_n, is_train=True, env_kwargs=env_kwargs)
         _val_envs = build_alfworld_envs(alf_config_path, config.env.seed + 1000, config.data.val_batch_size, 1, is_train=False, env_kwargs=env_kwargs)
-        
+
         projection_f = partial(alfworld_projection)
         envs = AlfWorldEnvironmentManager(_envs, projection_f, config)
         val_envs = AlfWorldEnvironmentManager(_val_envs, projection_f, config)
@@ -541,7 +659,7 @@ def make_envs(config):
         }
         _envs = build_sokoban_envs(config.env.seed, config.data.train_batch_size, group_n, mode=config.env.sokoban.mode, is_train=True, env_kwargs=env_kwargs)
         _val_envs = build_sokoban_envs(config.env.seed + 1000, config.data.val_batch_size, 1, mode=config.env.sokoban.mode, is_train=False, env_kwargs=env_kwargs)
-        
+
         projection_f = partial(sokoban_projection)
         envs = SokobanEnvironmentManager(_envs, projection_f, config)
         val_envs = SokobanEnvironmentManager(_val_envs, projection_f, config)
@@ -574,10 +692,36 @@ def make_envs(config):
         from agent_system.environments.env_package.appworld import build_appworld_envs, appworld_projection
         _envs = build_appworld_envs(dataset_name='train', seed=config.env.seed, env_num=config.data.train_batch_size, group_n=group_n, start_server_id=0)
         _val_envs = build_appworld_envs(dataset_name='test_normal', seed=config.env.seed + 1000, env_num=config.data.val_batch_size, group_n=1, start_server_id=config.data.train_batch_size*group_n)
-        
+
         projection_f = partial(appworld_projection)
         envs = AppWorldEnvironmentManager(_envs, projection_f, config)
         val_envs = AppWorldEnvironmentManager(_val_envs, projection_f, config)
+        return envs, val_envs
+    elif "travelplanner" in config.env.env_name.lower():
+
+        from agent_system.environments.env_package.travelplanner import (
+            build_travelplanner_envs,
+            travelplanner_projection,
+        )
+
+        _envs = build_travelplanner_envs(
+            seed=config.env.seed,
+            env_num=config.data.train_batch_size,
+            group_n=group_n,
+            is_train=True,
+            env_kwargs={"split": "train"},
+        )
+        _val_envs = build_travelplanner_envs(
+            seed=config.env.seed + 1000,
+            env_num=config.data.val_batch_size,
+            group_n=1,
+            is_train=False,
+            env_kwargs={"split": "validation"},
+        )
+
+        projection_f = partial(travelplanner_projection)
+        envs = TravelPlannerEnvironmentManager(_envs, projection_f, config)
+        val_envs = TravelPlannerEnvironmentManager(_val_envs, projection_f, config)
         return envs, val_envs
     else:
         print("Environment not supported")
