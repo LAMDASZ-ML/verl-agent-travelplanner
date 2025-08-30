@@ -564,7 +564,6 @@ class TravelPlannerEnvironmentManager(EnvironmentManagerBase):
         plans: List[str],
         init: bool = False,
     ) -> List[str]:
-
         if init:
             postprocess_text_obs = [
                 TRAVELPLANNER_ZEROSHOT_REACT_INSTRUCTION.format(
@@ -612,6 +611,119 @@ class TravelPlannerEnvironmentManager(EnvironmentManagerBase):
                 )
                 return
 
+class MEM1TravelPlannerEnvironmentManager(EnvironmentManagerBase):
+    DAY_PLAN_TEMPLATE = {
+        "days": None,
+        "current_city": "-",
+        "transportation": "-",
+        "breakfast": "-",
+        "attraction": "-",
+        "lunch": "-",
+        "dinner": "-",
+        "accommodation": "-",
+    }
+
+    def __init__(self, envs, projection_f, config):
+        from agent_system.memory.mem1_memory import MEM1Memory
+        self.memory = MEM1Memory()
+        self.queries = None
+        self.max_turns = getattr(config.env, 'max_steps', 20)
+        super().__init__(envs, projection_f, config)
+        # breakpoint()
+
+    def _generate_empty_plan(self, day_count: int) -> str:
+        """
+        Generate an empty plan for the given number of days.
+        """
+        res = []
+        for day in range(1, day_count + 1):
+            day_plan = deepcopy(self.DAY_PLAN_TEMPLATE)
+            day_plan["days"] = day
+            res.append(day_plan)
+        return str(res).replace("'", '"')  # Convert to JSON-like string format
+
+    def reset(self):
+        obs, infos = self.envs.reset()
+        self.queries = [info["info"] for info in infos]
+        self.memory.reset(batch_size=len(obs))
+
+        full_text_obs = self.build_text_obs(
+            cur_obs=obs,
+            plans=[self._generate_empty_plan(query["days"]) for query in self.queries],
+            init=True,
+        )
+        return {"text": full_text_obs, "image": None, "anchor": obs}, infos
+
+    def step(self, text_actions: List[str]):
+        valid_text_format =[]
+        valids, actions, thoughts, plans,ISs = self.projection_f(text_actions)
+
+        obs, rewards, dones, infos = self.envs.step(text_actions)
+        self.memory.store({"IS": ISs, "action": actions})
+        full_text_obs = self.build_text_obs(cur_obs=obs, plans=plans, init=False)
+
+        for i, info in enumerate(infos):
+            valid_text_format.append(1 if actions[i]!="" and thoughts[i]!="" and plans[i]!="" and ISs[i]!="" else 0)
+            info["format_reward"] = valid_text_format[i]
+
+        next_observations = {
+            "text": full_text_obs, 
+            "image": None, 
+            "anchor": obs
+        }
+
+        for i, info in enumerate(infos):
+            info['is_action_valid'] = to_numpy(valids[i])
+        rewards = to_numpy(rewards)
+        rewards = rewards + 0.1*(to_numpy(valid_text_format) -1)  #对于不合格式的回复给予负奖励
+        dones = to_numpy(dones)
+
+        return next_observations, rewards, dones, infos
+
+    def build_text_obs(
+        self,
+        cur_obs: List[str],
+        plans: List[str],
+        init: bool = False,
+    ) -> List[str]:
+        if init:
+            postprocess_text_obs = [
+                TRAVELPLANNER_ZEROSHOT_REACT_INSTRUCTION_NO_HIS.format(
+                    query=self.queries[i]["query"],
+                    plan=plans[i],
+                )
+                for i in range(len(self.queries))
+            ]
+        else:
+            previous_internal_state_text,previous_step,last_act=self.memory.fetch()
+            postprocess_text_obs = []
+            for i in range(len(cur_obs)):
+                obs = TRAVELPLANNER_ZEROSHOT_REACT_INSTRUCTION_MEM1.format(
+                    query=self.queries[i]["query"],
+                    plan=plans[i],
+                    previous_internal_state=previous_internal_state_text[i],
+                    step_count=previous_step[i],
+                    step_left=self.max_turns - previous_step[i]-1,
+                    observation=cur_obs[i],
+                    last_action=last_act[i]
+                )
+                postprocess_text_obs.append(obs)
+        # print(f"postprocess_text_obs[0]: {postprocess_text_obs[0]}")
+        return postprocess_text_obs
+
+    def _process_batch(self, batch_idx, total_batch_list, total_infos, success):
+        for i in reversed(range(len(total_batch_list[batch_idx]))):
+            batch_item = total_batch_list[batch_idx][i]
+            if batch_item["active_masks"]:
+                info = total_infos[batch_idx][i]
+                won_value = float(info["won"])
+                valid_action_ratio = float(info["valid_action_ratio"])
+                success["success_rate"].append(won_value)
+                success["valid_action_ratio_per_env (not score or success_rate)"].append(
+                    valid_action_ratio
+                )
+                success["plan_reward (not score or success_rate)"].append(float(info["plan_reward"]))
+                return
 
 def make_envs(config):
     """
@@ -697,6 +809,34 @@ def make_envs(config):
         envs = AppWorldEnvironmentManager(_envs, projection_f, config)
         val_envs = AppWorldEnvironmentManager(_val_envs, projection_f, config)
         return envs, val_envs
+    
+    elif "mem1travelplanner" in config.env.env_name.lower():
+
+        from agent_system.environments.env_package.travelplanner import (
+            build_travelplanner_envs,
+            travelplanner_projection,
+        )
+
+        _envs = build_travelplanner_envs(
+            seed=config.env.seed,
+            env_num=config.data.train_batch_size,
+            group_n=group_n,
+            is_train=True,
+            env_kwargs={"split": "train"},
+        )
+        _val_envs = build_travelplanner_envs(
+            seed=config.env.seed + 1000,
+            env_num=config.data.val_batch_size,
+            group_n=1,
+            is_train=False,
+            env_kwargs={"split": "validation"},
+        )
+
+        projection_f = partial(travelplanner_projection)
+        envs = MEM1TravelPlannerEnvironmentManager(_envs, projection_f, config)
+        val_envs = MEM1TravelPlannerEnvironmentManager(_val_envs, projection_f, config)
+        return envs, val_envs
+    
     elif "travelplanner" in config.env.env_name.lower():
 
         from agent_system.environments.env_package.travelplanner import (

@@ -226,8 +226,8 @@ class TravelPlannerEnvForRay(gym.Env):
             self.valid_action_count / self.step_count if self.step_count > 0 else 0.0
         )
 
-        last_action = f"{action_type}[{action_arg}]"
-        obs = f"Last Action: {last_action}. Don't repeat the same action again!\n" + obs
+        # last_action = f"{action_type}[{action_arg}]"
+        # obs = f"Last Action: {last_action}. Don't repeat the same action again!\n" +'Current observation: '+ obs
         if self.debug_worker_id == 0:
             print("Observation Output:", obs)
         return obs, reward, self.done, info
