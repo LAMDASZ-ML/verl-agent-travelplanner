@@ -306,7 +306,7 @@ class ActorRolloutRefWorker(Worker):
         # TODO: add transformer policy
         # We force reference policy to use CPUOffload to save memory.
         # We force turn off CPUOffload for actor because it causes incorrect results when using grad accumulation
-        cpu_offload = None if role == "actor" else CPUOffload(offload_params=True)
+        cpu_offload = None # if role == "actor" else CPUOffload(offload_params=True)
         fsdp_strategy = self.config.actor.strategy
         if fsdp_strategy == "fsdp":
             actor_module_fsdp = FSDP(
@@ -538,7 +538,6 @@ class ActorRolloutRefWorker(Worker):
                 role="actor",
                 enable_activation_offload=self.config.model.get("enable_activation_offload", False),
             )
-
             # get the original unwrapped module
             if fsdp_version(self.actor_module_fsdp) == 1:
                 self.actor_module = self.actor_module_fsdp._fsdp_wrapped_module

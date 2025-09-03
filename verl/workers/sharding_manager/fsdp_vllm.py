@@ -221,7 +221,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         ):
             self.inference_engine.offload_model_weights()
         else:
-            self.inference_engine.sleep(level=1)
+            self.inference_engine.sleep(level=2)
 
         self.module.train()
 

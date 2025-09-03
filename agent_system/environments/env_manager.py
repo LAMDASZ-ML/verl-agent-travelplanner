@@ -629,7 +629,7 @@ class MEM1TravelPlannerEnvironmentManager(EnvironmentManagerBase):
         self.queries = None
         self.max_turns = getattr(config.env, 'max_steps', 20)
         super().__init__(envs, projection_f, config)
-        # breakpoint()
+
 
     def _generate_empty_plan(self, day_count: int) -> str:
         """

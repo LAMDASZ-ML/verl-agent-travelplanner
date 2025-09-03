@@ -175,6 +175,7 @@ class TaskRunner:
             val_envs=val_envs,
         )
         trainer.init_workers()
+        # breakpoint()
         trainer.fit()
 
 
