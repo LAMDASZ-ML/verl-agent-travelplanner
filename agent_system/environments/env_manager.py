@@ -610,6 +610,9 @@ class TravelPlannerEnvironmentManager(EnvironmentManagerBase):
                 success["format_reward (not score or success_rate)"].append(
                     float(info["format_reward"])
                 )
+                success["plan_format_reward (not score or success_rate)"].append(
+                    float(info["plan_format_reward"])
+                )
                 return
 
 
@@ -703,12 +706,14 @@ def make_envs(config):
             build_travelplanner_envs,
             travelplanner_projection,
         )
-
+        # use_cl = config.env.use_cl if hasattr(config.env, "use_cl") else False
+        use_cl = True
         _envs = build_travelplanner_envs(
             seed=config.env.seed,
             env_num=config.data.train_batch_size,
             group_n=group_n,
             is_train=True,
+            use_cl=use_cl,
             env_kwargs={"split": "train"},
         )
         _val_envs = build_travelplanner_envs(
@@ -716,6 +721,7 @@ def make_envs(config):
             env_num=config.data.val_batch_size,
             group_n=1,
             is_train=False,
+            use_cl=use_cl,
             env_kwargs={"split": "validation"},
         )
 

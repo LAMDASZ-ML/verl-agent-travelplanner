@@ -3,7 +3,7 @@ ENGINE=${1:-vllm}
 export VLLM_ATTENTION_BACKEND=XFORMERS
 
 train_data_size=16
-val_data_size=128
+val_data_size=64
 group_size=8
 
 #  only use data preparation to indicate the modality and the data size.
@@ -25,7 +25,7 @@ python3 -m verl.trainer.main_ppo \
     data.max_prompt_length=$max_prompt_length \
     data.max_response_length=$max_response_length \
     data.filter_overlong_prompts=True \
-    data.truncation='error' \
+    data.truncation='left' \
     data.return_raw_chat=True \
     actor_rollout_ref.model.path=/ssd/zhangbw/models/Qwen/Qwen2.5-7B-Instruct \
     actor_rollout_ref.actor.optim.lr=1e-6 \

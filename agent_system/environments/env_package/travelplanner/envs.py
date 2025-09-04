@@ -41,6 +41,13 @@ class TravelPlannerDataAndToolForRay:
         )
 
         self.dataset_dict = dataset_dict or load_dataset_dict()
+        # 筛选days==3, visiting_city_number==1的数据
+        self.dataset_dict = {
+            split: self.dataset_dict[split].filter(
+                lambda x: x["days"] == 3 and x["visiting_city_number"] == 1
+            )
+            for split in self.dataset_dict
+        }
         self.tools = tools or load_tools()
         self.commonsense_eval = commonsense_eval
         self.hard_eval = hard_eval
@@ -93,6 +100,10 @@ class TravelPlannerDataAndToolForRay:
             obs = f"Invalid action {action_type} with argument {action_arg}: {str(e)}\n{traceback.format_exc()}"
         return obs
 
+    def get_data_len_with_split(self, split: str) -> int:
+        """Get the length of the dataset for a given split."""
+        return len(self.dataset_dict[split])
+
 
 class TravelPlannerEnvForRay(gym.Env):
 
@@ -104,6 +115,7 @@ class TravelPlannerEnvForRay(gym.Env):
         split: Literal["train", "validation"] = "train",
         ray_data_and_tools_actor=None,
         debug_worker_id: int = 0,
+        use_cl: bool = False,
     ):
         super(TravelPlannerEnvForRay, self).__init__()
         self.debug_worker_id = debug_worker_id
@@ -272,6 +284,66 @@ class TravelPlannerEnvForRay(gym.Env):
             return "InvalidAction", ""
 
 
+class TravelPlannerEnvForRay_CourseLearning_Wrapper(gym.Wrapper):
+    """A wrapper for the TravelPlanner environment to handle course learning."""
+
+    DAY_PLAN_TEMPLATE = {
+        "days": None,
+        "current_city": "-",
+        "transportation": "-",
+        "breakfast": "-",
+        "attraction": "-",
+        "lunch": "-",
+        "dinner": "-",
+        "accommodation": "-",
+    }
+
+    def __init__(self, env: TravelPlannerEnvForRay):
+        """Initialize the wrapper with the environment and allowed days."""
+        super().__init__(env)
+        self.env = env
+
+    def reset(self, allowed_days_list=None):
+        """Reset the environment and return the initial observation."""
+
+        obs, info = self.env.reset()
+        return obs, info
+
+    def _cal_plan_format_reward(self, str_plan: str) -> float:
+        """Calculate the reward for a given plan based on allowed days."""
+        try:
+            plan = json.loads(str_plan)
+            for day_idx, day_plan in enumerate(plan):
+                if day_plan["days"] != day_idx + 1:
+                    return 0.0
+                ref_keys = self.DAY_PLAN_TEMPLATE.keys()
+                plan_keys = day_plan.keys()
+                if set(ref_keys) != set(plan_keys):
+                    return 0.0
+        except Exception as e:
+            return 0.0
+        return 1.0
+
+    def _extract_plan_str(self, obs: str) -> str:
+        """Extract the plan string from the observation."""
+        match = re.search(r"<plan>(.*?)</plan>", obs, re.DOTALL)
+        if match:
+            return match.group(1).strip()
+        return ""
+
+    def step(self, action: str):
+        """Execute a step in the environment with the given action."""
+
+        obs, reward, done, info = self.env.step(action)
+        str_plan = self._extract_plan_str(action)
+        if not str_plan:
+            info["plan_format_reward"] = 0.0
+        else:
+            info["plan_format_reward"] = self._cal_plan_format_reward(str_plan)
+        reward += info["plan_format_reward"]
+        return obs, reward, done, info
+
+
 # -----------------------------------------------------------------------------
 # Ray remote worker actor -----------------------------------------------------
 # -----------------------------------------------------------------------------
@@ -289,7 +361,12 @@ class TravelPlannerWorker:
         env_kwargs["seed"] = seed
         # self.env = gym.make("TravelPlanner-v0", **env_kwargs)
         # self.env = TravelPlannerEnv(**env_kwargs)
-        self.env = TravelPlannerEnvForRay(**env_kwargs)
+        if "use_cl" in env_kwargs and env_kwargs["use_cl"]:
+            self.env = TravelPlannerEnvForRay_CourseLearning_Wrapper(
+                TravelPlannerEnvForRay(**env_kwargs)
+            )
+        else:
+            self.env = TravelPlannerEnvForRay(**env_kwargs)
 
     def step(self, action):
         """Execute a step in the environment"""
@@ -327,6 +404,7 @@ class TravelPlannerMultiProcessEnv(gym.Env):
         env_num: int = 1,
         group_n: int = 1,
         is_train: bool = True,
+        use_cl: bool = False,
         env_kwargs: dict = None,
     ) -> None:
         super().__init__()
@@ -350,6 +428,7 @@ class TravelPlannerMultiProcessEnv(gym.Env):
         self._workers = []
         self.shared_data_and_tools_actor = TravelPlannerDataAndToolForRay.remote()
         self._env_kwargs["ray_data_and_tools_actor"] = self.shared_data_and_tools_actor
+        self._env_kwargs["use_cl"] = use_cl
         for i in range(self.num_processes):
             self._env_kwargs["debug_worker_id"] = i
             worker = TravelPlannerWorker.remote(
@@ -434,6 +513,7 @@ def build_travelplanner_envs(
     env_num: int = 1,
     group_n: int = 1,
     is_train: bool = True,
+    use_cl: bool = False,
     env_kwargs: dict = None,
 ) -> TravelPlannerMultiProcessEnv:
     """Build a vectorised TravelPlanner environment."""
@@ -442,5 +522,6 @@ def build_travelplanner_envs(
         env_num=env_num,
         group_n=group_n,
         is_train=is_train,
+        use_cl=use_cl,
         env_kwargs=env_kwargs,
     )

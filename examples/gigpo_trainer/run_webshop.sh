@@ -8,10 +8,10 @@ group_size=8
 mode="mean_norm" # "mean_norm" or "mean_std_norm"
 
 # We only use data preparation to indicate the modality and the data size.
-python3 -m examples.data_preprocess.prepare \
-    --mode 'text' \
-    --train_data_size $train_data_size \
-    --val_data_size $((val_data_size * 2)) # evaluate 2 × val_data_size tasks during each iteration
+# python3 -m examples.data_preprocess.prepare \
+#     --mode 'text' \
+#     --train_data_size $train_data_size \
+#     --val_data_size $((val_data_size * 2)) # evaluate 2 × val_data_size tasks during each iteration
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=gigpo \
@@ -24,7 +24,7 @@ python3 -m verl.trainer.main_ppo \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
     data.return_raw_chat=True \
-    actor_rollout_ref.model.path=Qwen/Qwen2.5-1.5B-Instruct \
+    actor_rollout_ref.model.path=/ssd/zhangbw/models/Qwen/Qwen2.5-1.5B-Instruct \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=64 \
@@ -64,5 +64,5 @@ python3 -m verl.trainer.main_ppo \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
     trainer.test_freq=5 \
-    trainer.total_epochs=150 \
+    trainer.total_epochs=50 \
     trainer.val_before_train=True $@

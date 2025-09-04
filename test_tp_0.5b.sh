@@ -5,15 +5,16 @@ export VLLM_ATTENTION_BACKEND=XFORMERS
 train_data_size=16
 val_data_size=128
 group_size=8
+mode="mean_norm" # "mean_norm" or "mean_std_norm"
 
-# We only use data preparation to indicate the modality and the data size.
+# # We only use data preparation to indicate the modality and the data size.
 # python3 -m examples.data_preprocess.prepare \
 #     --mode 'text' \
 #     --train_data_size $train_data_size \
-#     --val_data_size $val_data_size
+#     --val_data_size $((val_data_size * 2)) # evaluate 2 × val_data_size tasks during each iteration
 
 python3 -m verl.trainer.main_ppo \
-    algorithm.adv_estimator=grpo \
+    algorithm.adv_estimator=gigpo \
     data.train_files=$HOME/data/verl-agent/text/train.parquet \
     data.val_files=$HOME/data/verl-agent/text/test.parquet \
     data.train_batch_size=$train_data_size \
@@ -23,7 +24,7 @@ python3 -m verl.trainer.main_ppo \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
     data.return_raw_chat=True \
-    actor_rollout_ref.model.path=/ssd/zhangbw/models/Qwen/Qwen2.5-7B-Instruct \
+    actor_rollout_ref.model.path=/ssd/zhangbw/models/Qwen/Qwen2.5-0.5B-Instruct \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=32 \
@@ -37,7 +38,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=16 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
     actor_rollout_ref.rollout.name=$ENGINE \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.4 \
     actor_rollout_ref.rollout.enable_chunked_prefill=False \
     actor_rollout_ref.rollout.enforce_eager=False \
     actor_rollout_ref.rollout.free_cache_engine=False \
@@ -48,17 +49,20 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.use_invalid_action_penalty=True \
     actor_rollout_ref.actor.invalid_action_penalty_coef=0.1 \
     algorithm.use_kl_in_reward=False \
-    env.env_name=Webshop \
+    algorithm.gamma=0.95 \
+    algorithm.gigpo.step_advantage_w=1.0 \
+    algorithm.gigpo.mode=$mode \
+    env.env_name=Travelplanner \
     env.seed=0 \
     env.max_steps=15 \
     env.rollout.n=$group_size \
     trainer.critic_warmup=0 \
     trainer.logger=['console','swanlab'] \
-    trainer.project_name='verl_agent_webshop' \
-    trainer.experiment_name='grpo_qwen2.5_7b' \
-    trainer.n_gpus_per_node=4 \
+    trainer.project_name='verl_agent_travelplanner' \
+    trainer.experiment_name='gigpo_travelplanner_qwen2.5_0.5b' \
+    trainer.n_gpus_per_node=2 \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
-    trainer.test_freq=5 \
-    trainer.total_epochs=50 \
+    trainer.test_freq=10 \
+    trainer.total_epochs=10 \
     trainer.val_before_train=True $@

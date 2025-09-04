@@ -9,7 +9,7 @@ import re
 import gymnasium as gym
 from gymnasium import spaces
 from typing import Any, Dict, List, Tuple
-from datasets import load_dataset
+from datasets import load_dataset, DatasetDict
 from pandas import DataFrame
 
 from .evaluation.commonsense_constraint import (
@@ -37,7 +37,7 @@ actionMappingReverse = {
 }  # e.g. flights -> FlightSearch, attractions -> AttractionSearch
 
 
-def load_dataset_dict():
+def load_dataset_dict() -> Dict[str, DatasetDict]:
     """
     Load the dataset dictionary for the Travel Planner environment.
     This function is used to load the dataset from the Hugging Face hub.
