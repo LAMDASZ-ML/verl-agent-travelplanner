@@ -39,11 +39,12 @@ class TravelPlannerDataAndToolForRay:
             Cities,
             Notebook,
         )
-
         self.dataset_dict = dataset_dict or load_dataset_dict()
         self.tools = tools or load_tools()
         self.commonsense_eval = commonsense_eval
         self.hard_eval = hard_eval
+        commonsense_global_init()
+        hard_global_init()
 
     def get_data_with_split_idx(self, split: str, idx: int):
         idx = idx % len(self.dataset_dict[split])
@@ -62,8 +63,8 @@ class TravelPlannerDataAndToolForRay:
         commonsense_info_box = self.commonsense_eval(query_data, plan)
         hard_logic_info_box = self.hard_eval(query_data, plan)
         # 每个box为key:(bool, info) bool表示是否满足，info为具体信息
-        commonsense_bool_list = [v[0] for k, v in commonsense_info_box.items()]
-        hard_logic_bool_list = [v[0] for k, v in hard_logic_info_box.items()]
+        commonsense_bool_list = [v[0] for k, v in commonsense_info_box.items() if v[0] is not None]
+        hard_logic_bool_list = [v[0] for k, v in hard_logic_info_box.items() if v[0] is not None]
         return (sum(commonsense_bool_list) + sum(hard_logic_bool_list)) / (
             len(commonsense_bool_list) + len(hard_logic_bool_list)
         )
@@ -124,6 +125,7 @@ class TravelPlannerEnvForRay(gym.Env):
             print(f"Available tools: {self.tool_names}")
         self.retry_record = {name: 0 for name in self.tool_names}
         self.retry_record["InvalidAction"] = 0
+        self.retry_record["Finish"] = 0
 
         self.query_idx = seed
         self.split = split
@@ -173,6 +175,9 @@ class TravelPlannerEnvForRay(gym.Env):
         reward = 0.0
         if self.done:
             info["error"] = "Environment is done, please reset."
+        think_end_pos = action.find('</think>')
+        if think_end_pos != -1:
+            action = action[think_end_pos + len('</think>'):]
 
         action_type, action_arg = self._parse_action(action)
         self.step_count += 1
@@ -180,9 +185,9 @@ class TravelPlannerEnvForRay(gym.Env):
         if action_type == "Finish":
             self.done = True
             try:
-                plan = (
-                    re.search(r"<plan>(.*?)</plan>", action, re.DOTALL).group(1).strip()
-                )
+                plan_list = re.findall(r"<plan>(.*?)</plan>", action, re.DOTALL)
+                assert len(plan_list) == 1
+                plan=plan_list[0].strip()
                 # info["plan_reward"] = self._cal_plan_reward(plan)
                 info["plan_reward"] = ray.get(
                     self.shared_data_and_tools_actor._cal_plan_reward.remote(
@@ -193,7 +198,8 @@ class TravelPlannerEnvForRay(gym.Env):
                 info["won"] = True if info["plan_reward"] == 1.0 else False
                 self.valid_action_count += 1
                 info["cur_action_is_valid"] = True
-            except:
+            except Exception as e:
+                print(e)
                 info["plan_reward"] = 0.0
                 info["error"] = "No valid plan found."
                 info["won"] = False
@@ -202,13 +208,14 @@ class TravelPlannerEnvForRay(gym.Env):
         try:
             if self.debug_worker_id == 0:
                 print(f"Parsed action_type: {action_type}, action_arg: {action_arg}")
-            result = self._call_tool(action_type, action_arg)
-            obs = str(result)
-            info["state"] = "Success"
-            self.retry_record[action_type] = 0
-            if not obs.startswith("Invalid action"):
-                self.valid_action_count += 1
-                info["cur_action_is_valid"] = True
+            if action_type != "Finish":
+                result = self._call_tool(action_type, action_arg)
+                obs = str(result)
+                info["state"] = "Success"
+                self.retry_record[action_type] = 0
+                if not obs.startswith("Invalid action"):
+                    self.valid_action_count += 1
+                    info["cur_action_is_valid"] = True
         except Exception as e:
             self.retry_record[action_type] += 1
             obs = str(e)
@@ -247,24 +254,29 @@ class TravelPlannerEnvForRay(gym.Env):
         """
 
         # 首先提取<action> </action>之间的内容
-        action_cmd = re.search(r"<action>(.*?)</action>", action, re.DOTALL)
+        action_cmd_list = re.findall(r"<action>(.*?)</action>", action, re.DOTALL)
+        if len(action_cmd_list) == 0 or len(action_cmd_list) > 1:
+            return "InvalidAction", ""
+        else :
+            action_cmd=action_cmd_list[0]
         if self.debug_worker_id == 0:
             print(f"Extracted action command: {action_cmd}")
         if action_cmd:
-            action_cmd = action_cmd.group(1).strip()
+            action_cmd = action_cmd.strip()  # 直接 strip，不需要 group(1)
         else:
             return "InvalidAction", ""
 
-        pattern = r"^(\w+)\[(.+)\]$"
+        pattern = r"^(\w+)\[(.*)\]$"
         match = re.match(pattern, action_cmd)
 
         try:
             if match:
                 action_type = match.group(1).strip()
                 action_arg = match.group(2).strip()
-                if not action_type in self.tool_names:
+                if action_type == "Finish" or action_type in self.tool_names:
+                    return action_type, action_arg
+                else:
                     return "InvalidAction", ""
-                return action_type, action_arg
             else:
                 return "InvalidAction", ""
 

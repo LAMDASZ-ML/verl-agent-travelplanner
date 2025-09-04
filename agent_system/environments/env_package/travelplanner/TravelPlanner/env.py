@@ -42,15 +42,33 @@ def load_dataset_dict():
     Load the dataset dictionary for the Travel Planner environment.
     This function is used to load the dataset from the Hugging Face hub.
     """
+    import ast
+    def process_nested_strings(example):
+        """处理数据集中的嵌套字符串结构，如列表和字典"""
+        processed = dict(example)
+        
+        # 需要处理的可能包含嵌套字符串的字段
+        fields_to_check = ["date", "local_constraint", "reference_information"]
+        for field in fields_to_check:
+            if field in processed and isinstance(processed[field], str):
+                try:
+                    processed[field] = ast.literal_eval(processed[field])
+                except (SyntaxError, ValueError) as e:
+                    print(f"转换字段 '{field}' 时出错: {e}")
+        
+        return processed
     train_data = load_dataset(
         "osunlp/TravelPlanner", "train", download_mode="reuse_dataset_if_exists"
     )["train"]
+
     validation_data = load_dataset(
         "osunlp/TravelPlanner", "validation", download_mode="reuse_dataset_if_exists"
     )["validation"]
+    processed_train = train_data.map(process_nested_strings)
+    processed_validation = validation_data.map(process_nested_strings)
     return {
-        "train": train_data,
-        "validation": validation_data,
+        "train": processed_train,
+        "validation": processed_validation,
     }
 
 

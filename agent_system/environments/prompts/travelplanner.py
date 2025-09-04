@@ -266,7 +266,7 @@ Parameter: State – The name of the state where you're seeking cities.
 Example: CitySearch[California] would return cities in California.
 
 (7) Finish[]
-Description: Tell the system that you have completed the task and no further actions are needed.
+Description: Tell the system that you have completed the task and no further actions are needed. You must choose the Finish[] action if you only have 1 step left.
 Parameters: None
 Example: Finish[] would indicate that you have finished the task.
 
@@ -323,7 +323,8 @@ Then, choose an action and put the action to be taken between <action> and </act
 Finally, put the generated plan between <plan> and </plan> tags. You can output an incomplete plan <plan></plan> which should be in the correct format in which "-" is used for unfilled values. The plan you output will be used to replace the incomplete plan in the input prompt. Don't output empty <plan></plan> tags!
 Use all the tools provided above to gather information for the query. Don't repeat the same action multiple times!!!
 
-Prior to this step, you have already taken {step_count} step(s), and you have {step_left} steps left. 
+Prior to this step, you have already taken {step_count} step(s), and you have {step_left} step(s) left including current step.
+IMPORTANT: If you only have 1 step left, this step is your last step and you MUST choose the Finish[] action whether you've finished your plan or not, otherwise your plan will be deprecated. If you think your plan is completed, you should also choose the Finish[] action.
 
 Here is your task:
 Query: 

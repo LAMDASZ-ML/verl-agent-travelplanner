@@ -10,36 +10,54 @@ def travelplanner_projection(text_actions: List[str]):
         <think>some reasoning...</think>
         <action>...</action>
     """
-    total_pattern = r"^.*<action>.*?</action>.*$"
     valids = [0] * len(text_actions)
-    for i in range(len(text_actions)):
-        if re.match(total_pattern, text_actions[i], re.DOTALL):
-            valids[i] = 1
-        else:
-            valids[i] = 0
 
-    thoughts = [None] * len(text_actions)
-    plans = [None] * len(text_actions)
-    actions = [None] * len(text_actions)
-    ISs = [None] * len(text_actions)
+    thoughts = [""] * len(text_actions)
+    plans = [""] * len(text_actions)
+    actions = [""] * len(text_actions)
+    ISs = [""] * len(text_actions)
     thought_pattern = r"<think>(.*?)</think>"
     action_pattern = r"<action>(.*?)</action>"
     plan_pattern = r"<plan>(.*?)</plan>"
     IS_pattern = r"<IS>(.*?)</IS>"
+    
     for i in range(len(text_actions)):
-        # Extract <think>...</think>
-        think_match = re.search(thought_pattern, text_actions[i], re.DOTALL)
-        thoughts[i] = think_match.group(1).strip() if think_match else ""
-
-        # Extract <action>...</action>
-        action_match = re.search(action_pattern, text_actions[i], re.DOTALL)
-        actions[i] = action_match.group(1).strip() if action_match else ""
-
-        # Extract <plan>...</plan>
-        plan_match = re.search(plan_pattern, text_actions[i], re.DOTALL)
-        plans[i] = plan_match.group(1).strip() if plan_match else ""
+        text = text_actions[i]
         
-        # Extract <IS>...</IS>
-        IS_match = re.search(IS_pattern, text_actions[i], re.DOTALL)
-        ISs[i] = IS_match.group(1).strip() if IS_match else ""
-    return valids, actions, thoughts, plans,ISs
+        # Check if </think> exists in the text
+        think_end_pos = text.find('</think>')
+        if think_end_pos != -1:
+            # If </think> exists, only search after it for action, plan, IS
+            search_text = text[think_end_pos + len('</think>'):]
+        else:
+            # If </think> doesn't exist, search the entire text
+            search_text = text
+        
+        # Extract <think>...</think> from the entire text (not affected by the rule)
+        think_matches = re.findall(thought_pattern, text, re.DOTALL)
+        thoughts[i] = think_matches[-1].strip() if think_matches else ""
+
+        # Extract other tags from search_text (after </think> if it exists)
+        action_matches = re.findall(action_pattern, search_text, re.DOTALL)
+        plan_matches = re.findall(plan_pattern, search_text, re.DOTALL)
+        IS_matches = re.findall(IS_pattern, search_text, re.DOTALL)
+        
+        # Ensure only one match for each tag (except think)
+        if len(action_matches) > 1 or len(action_matches)==0:
+            actions[i] = ""  # Invalid if multiple matches
+            valids[i] = 0
+        else:
+            actions[i] = action_matches[0].strip()
+            valids[i] = 1
+
+        if len(plan_matches) > 1:
+            plans[i] = ""  # Invalid if multiple matches
+        else:
+            plans[i] = plan_matches[0].strip() if plan_matches else ""
+            
+        if len(IS_matches) > 1:
+            ISs[i] = ""  # Invalid if multiple matches
+        else:
+            ISs[i] = IS_matches[0].strip() if IS_matches else ""
+            
+    return valids, actions, thoughts, plans, ISs

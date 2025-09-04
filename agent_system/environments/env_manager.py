@@ -629,6 +629,7 @@ class MEM1TravelPlannerEnvironmentManager(EnvironmentManagerBase):
         self.queries = None
         self.max_turns = getattr(config.env, 'max_steps', 20)
         super().__init__(envs, projection_f, config)
+        # breakpoint()
 
 
     def _generate_empty_plan(self, day_count: int) -> str:
@@ -657,13 +658,14 @@ class MEM1TravelPlannerEnvironmentManager(EnvironmentManagerBase):
     def step(self, text_actions: List[str]):
         valid_text_format =[]
         valids, actions, thoughts, plans,ISs = self.projection_f(text_actions)
-
+        # import re
+        # text_actions[0]=re.sub(r"<action>.*?</action>", "<action>Finish[]</action>", text_actions[0], flags=re.DOTALL)
         obs, rewards, dones, infos = self.envs.step(text_actions)
         self.memory.store({"IS": ISs, "action": actions})
         full_text_obs = self.build_text_obs(cur_obs=obs, plans=plans, init=False)
 
         for i, info in enumerate(infos):
-            valid_text_format.append(1 if actions[i]!="" and thoughts[i]!="" and plans[i]!="" and ISs[i]!="" else 0)
+            valid_text_format.append(1 if actions[i]!="" and plans[i]!="" and ISs[i]!="" else 0)
             info["format_reward"] = valid_text_format[i]
 
         next_observations = {
@@ -673,7 +675,7 @@ class MEM1TravelPlannerEnvironmentManager(EnvironmentManagerBase):
         }
 
         for i, info in enumerate(infos):
-            info['is_action_valid'] = to_numpy(valids[i])
+            info['is_action_valid'] = to_numpy(valid_text_format[i])
         rewards = to_numpy(rewards)
         rewards = rewards + 0.1*(to_numpy(valid_text_format) -1)  #对于不合格式的回复给予负奖励
         dones = to_numpy(dones)
@@ -703,7 +705,7 @@ class MEM1TravelPlannerEnvironmentManager(EnvironmentManagerBase):
                     plan=plans[i],
                     previous_internal_state=previous_internal_state_text[i],
                     step_count=previous_step[i],
-                    step_left=self.max_turns - previous_step[i]-1,
+                    step_left=self.max_turns - previous_step[i],
                     observation=cur_obs[i],
                     last_action=last_act[i]
                 )
@@ -822,14 +824,14 @@ def make_envs(config):
             env_num=config.data.train_batch_size,
             group_n=group_n,
             is_train=True,
-            env_kwargs={"split": "train"},
+            env_kwargs={"split": "train",'max_steps':config.env.max_steps},
         )
         _val_envs = build_travelplanner_envs(
             seed=config.env.seed + 1000,
             env_num=config.data.val_batch_size,
             group_n=1,
             is_train=False,
-            env_kwargs={"split": "validation"},
+            env_kwargs={"split": "validation",'max_steps':config.env.max_steps},
         )
 
         projection_f = partial(travelplanner_projection)
@@ -849,14 +851,14 @@ def make_envs(config):
             env_num=config.data.train_batch_size,
             group_n=group_n,
             is_train=True,
-            env_kwargs={"split": "train"},
+            env_kwargs={"split": "train",'max_steps':config.env.max_steps},
         )
         _val_envs = build_travelplanner_envs(
             seed=config.env.seed + 1000,
             env_num=config.data.val_batch_size,
             group_n=1,
             is_train=False,
-            env_kwargs={"split": "validation"},
+            env_kwargs={"split": "validation",'max_steps':config.env.max_steps},
         )
 
         projection_f = partial(travelplanner_projection)

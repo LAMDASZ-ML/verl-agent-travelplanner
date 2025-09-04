@@ -36,7 +36,7 @@ def global_init():
     attractions = Attractions()
     city_state_set = (
         open(
-            "/ssd/zhangbw/tp_rl/verl-agent/agent_system/environments/env_package/travelplanner/TravelPlanner/database/background/citySet_with_states.txt",
+            "../database/background/citySet_with_states.txt",
             "r",
         )
         .read()
