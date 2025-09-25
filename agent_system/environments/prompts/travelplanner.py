@@ -111,7 +111,10 @@ Current Observation:
 {observation}
 """
 
-TRAVELPLANNER_ZEROSHOT_REACT_INSTRUCTION_NO_HIS = """Collect information for a query plan using interleaving <think> <action> <IS> and <plan> steps. Ensure you gather valid information related to transportation, dining, attractions, and accommodation. Note that the nested use of tools is prohibited. 
+TRAVELPLANNER_ZEROSHOT_REACT_INSTRUCTION_NO_HIS = """
+You are a proficient planner. Based on the provided information and query, please give me a detailed plan, including specifics such as flight numbers (e.g., F0123456), restaurant names, and accommodation names. Note that all the information in your plan should be derived from the provided data. You must adhere to the format given in the example. Additionally, all details should align with commonsense. The symbol '-' indicates that information is unnecessary. When you travel to two cities in one day, you should note it in the 'Current City' section as in the example (i.e., from A to B).
+
+Collect information for a query plan using interleaving <think> <action> <IS> and <plan> steps. Ensure you gather valid information related to transportation, dining, attractions, and accommodation. Note that the nested use of tools is prohibited. 
 
 The following functions are available for you to call:
 
@@ -160,6 +163,8 @@ Example: Finish[] would indicate that you have finished the task.
 Each action only calls one function once. Do not add any description in the action.
 surround the action with <action> and </action> tags. For example, <action>FlightSearch[New York, London, 2022-10-01]</action>. After each action, the environment will return an observation.
 
+In "breakfast", "lunch", "dinner" and "accommodation" keys, please fill in the location information in the format 'Name, City', with the option to add the state or province in parentheses after the city, like 'Name, City (State)'. For example: 'Cafe Hashtag LoL, Peoria' or 'Disney World, Orlando (Florida)'. Otherwise these information will be considered invalid and be ignored.
+
 The plan should be a json list with each element containing the following keys:
 - days: The day number of the trip.
 - current_city: The city you are currently in or from A to B.
@@ -203,7 +208,7 @@ Here is an example of the plan:
     }}]
 -----EXAMPLE END-----
 
-You should first reason step-by-step about the current situation, then think carefully which action is the best for answering the query. Then think about what information might help you accomplish your task in the future and should be added to the your memory, whitch is called internal state. Think about how to create your internal state. This reasoning process MUST be enclosed within <think> </think> tags.
+You should first reason step-by-step about the current situation, then think carefully which action is the best for answering the query NOW. Then think about what information might help you accomplish your task in the future and should be added to the your memory, whitch is called internal state. Think about how to create your internal state. This reasoning process MUST be enclosed within <think> </think> tags.
 After your reasoning, you must create your internal state as your memory. Internal state needs to contain all the information you think will help you accomplish the task in the future, summarize past information and reasons about subsequent actions. Enclose this within <IS> </IS> tags.
 Then, you MUST put the action to be taken between <action> and </action> tags. The action should be a single function call with the format: FunctionName[Parameter1, Parameter2, ...].  
 Finally, put the generated plan between <plan> and </plan> tags. You can output an incomplete plan <plan></plan> which should be in the correct format in which "-" is used for unfilled values. The plan you output will be used to replace the incomplete plan in the input prompt. Don't output empty <plan></plan> tags!
@@ -225,7 +230,10 @@ You MUST follow this format:
 <plan>[Your current plan]</plan>
 """
 
-TRAVELPLANNER_ZEROSHOT_REACT_INSTRUCTION_MEM1 = """Collect information for a query plan using interleaving <think> <action> and <plan> steps. Ensure you gather valid information related to transportation, dining, attractions, and accommodation. Note that the nested use of tools is prohibited. 
+TRAVELPLANNER_ZEROSHOT_REACT_INSTRUCTION_MEM1 = """
+You are a proficient planner. Based on the provided information and query, please give me a detailed plan, including specifics such as flight numbers (e.g., F0123456), restaurant names, and accommodation names. Note that all the information in your plan should be derived from the provided data. You must adhere to the format given in the example. Additionally, all details should align with commonsense. The symbol '-' indicates that information is unnecessary. When you travel to two cities in one day, you should note it in the 'Current City' section as in the example (i.e., from A to B).
+
+Collect information for a query plan using interleaving <think> <action> and <plan> steps. Ensure you gather valid information related to transportation, dining, attractions, and accommodation. Note that the nested use of tools is prohibited. 
 
 The following functions are available for you to call:
 
@@ -283,6 +291,9 @@ The plan should be a json list with each element containing the following keys:
 - lunch: Lunch information for the day. "-" if no lunch is needed.
 - dinner: Dinner information for the day. "-" if no dinner is needed.  
 - accommodation: Accommodation information for the day. "-" if no accommodation is needed(e.g., the last day of the trip).
+
+In "breakfast", "lunch", "dinner" and "accommodation" keys, please fill in the location information in the format 'Name, City', with the option to add the state or province in parentheses after the city, like 'Name, City (State)'. For example: 'Cafe Hashtag LoL, Peoria' or 'Disney World, Orlando (Florida)'. Otherwise these information will be considered invalid and be ignored.
+
 Here is an example of the plan:
 -----EXAMPLE-----
  [{{
@@ -316,11 +327,12 @@ Here is an example of the plan:
         "accommodation": "-"
     }}]
 -----EXAMPLE END-----
+You will receive information on Query, Incomplete Plan, Previous internal State, Last Action, and Current Observation. The Query is the travel planning question I pose to you, and you need to meet the requirements I specify in it. The Incomplete Plan is the plan you have not yet completed; you need to fill in its content based on the existing information while ensuring that the content of the plan meets the needs I mentioned in the query. Previous internal state is the memory YOU have summarized earlier, recording information that may be helpful for completing your plan. Therefore, the information in IS is not necessarily correct or complete. You need to update your IS based on current observations. Last Action is the action you took in the previous step, and Current Observation is the feedback from the Last Action.
 
 You should first reason step-by-step about the current situation, then think carefully which action is the best for answering the query. Then think about what information in the observation might help you accomplish your task in the future and should be added to the new internal state, and what information from the previous internal state may no longer be needed. Think about how to update your internal state. This reasoning process MUST be enclosed within <think> </think> tags.
-After your reasoning, you must update your internal state (Memory) based on current observation and your previous internal state. Internal state needs to contain all the information you think will help you accomplish the task in the future, summarize past information and reasons about subsequent actions, instead of just repeating current observation and previous internal state. Enclose this within <IS> </IS> tags.
+After your reasoning, you must update your internal state based on current observation and your previous internal state. Internal state needs to contain all the information you think will help you accomplish the task in the future, summarize past information and reasons about subsequent actions, instead of just repeating current observation and previous internal state. Enclose this within <IS> </IS> tags.
 Then, choose an action and put the action to be taken between <action> and </action> tags. The action should be a single function call with the format: FunctionName[Parameter1, Parameter2, ...].  
-Finally, put the generated plan between <plan> and </plan> tags. You can output an incomplete plan <plan></plan> which should be in the correct format in which "-" is used for unfilled values. The plan you output will be used to replace the incomplete plan in the input prompt. Don't output empty <plan></plan> tags!
+Finally, put the generated plan between <plan> and </plan> tags. You can output an incomplete plan <plan></plan> which should be in the correct format in which "-" is used for unfilled values. The plan you output will be used to replace the incomplete plan in the input prompt. Don't output empty <plan></plan> tags! You should always provide a more complete plan than before, unless the current observation is insufficient for you to fill in any results.
 Use all the tools provided above to gather information for the query. Don't repeat the same action multiple times!!!
 
 Prior to this step, you have already taken {step_count} step(s), and you have {step_left} step(s) left including current step.
@@ -333,7 +345,7 @@ Incomplete Plan:
 {plan}
 Previous internal state:
 {previous_internal_state}
-Last action:
+Last action (Don't repeat the same action):
 {last_action}
 Current Observation:
 {observation}
@@ -343,7 +355,7 @@ You MUST follow this format:
 
 <action>[Your chosen action from the available options]</action>
 
-<IS>[Your updated internal state including key information to remember for future steps]</IS>
+<IS>[Your updated internal state]</IS>
 
-<plan>[Your current plan]</plan>
+<plan>[Your current more complete plan]</plan>
 """

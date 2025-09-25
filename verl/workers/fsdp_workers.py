@@ -306,7 +306,7 @@ class ActorRolloutRefWorker(Worker):
         # TODO: add transformer policy
         # We force reference policy to use CPUOffload to save memory.
         # We force turn off CPUOffload for actor because it causes incorrect results when using grad accumulation
-        cpu_offload = None # if role == "actor" else CPUOffload(offload_params=True)
+        cpu_offload = None if role == "actor" else CPUOffload(offload_params=True)
         fsdp_strategy = self.config.actor.strategy
         if fsdp_strategy == "fsdp":
             actor_module_fsdp = FSDP(
@@ -326,11 +326,11 @@ class ActorRolloutRefWorker(Worker):
             assert CPUOffloadPolicy is not None, "PyTorch version >= 2.4 is required for using fully_shard API (FSDP2)"
             mp_policy = MixedPrecisionPolicy(param_dtype=param_dtype, reduce_dtype=reduce_dtype, cast_forward_inputs=True)
             if role == "actor" and fsdp_config.offload_policy:
-                cpu_offload = CPUOffloadPolicy(pin_memory=True)
+                cpu_offload = CPUOffloadPolicy(pin_memory=False)
                 self._is_offload_param = False
                 self._is_offload_optimizer = False
             else:
-                cpu_offload = None if role == "actor" else CPUOffloadPolicy(pin_memory=True)
+                cpu_offload = None if role == "actor" else CPUOffloadPolicy(pin_memory=False)
 
             fsdp_kwargs = {
                 "mesh": fsdp_mesh,

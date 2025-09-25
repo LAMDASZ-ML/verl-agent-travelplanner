@@ -25,9 +25,10 @@ def travelplanner_projection(text_actions: List[str]):
         text = text_actions[i]
         
         # Check if </think> exists in the text
-        think_end_pos = text.find('</think>')
+        # Find the last occurrence of </think> instead of just the first one
+        think_end_pos = text.rfind('</think>')
         if think_end_pos != -1:
-            # If </think> exists, only search after it for action, plan, IS
+            # If </think> exists, only search after the LAST one for action, plan, IS
             search_text = text[think_end_pos + len('</think>'):]
         else:
             # If </think> doesn't exist, search the entire text
@@ -43,21 +44,14 @@ def travelplanner_projection(text_actions: List[str]):
         IS_matches = re.findall(IS_pattern, search_text, re.DOTALL)
         
         # Ensure only one match for each tag (except think)
-        if len(action_matches) > 1 or len(action_matches)==0:
+        if len(action_matches)==0:
             actions[i] = ""  # Invalid if multiple matches
             valids[i] = 0
         else:
-            actions[i] = action_matches[0].strip()
+            actions[i] = action_matches[-1].strip()
             valids[i] = 1
 
-        if len(plan_matches) > 1:
-            plans[i] = ""  # Invalid if multiple matches
-        else:
-            plans[i] = plan_matches[0].strip() if plan_matches else ""
-            
-        if len(IS_matches) > 1:
-            ISs[i] = ""  # Invalid if multiple matches
-        else:
-            ISs[i] = IS_matches[0].strip() if IS_matches else ""
+        plans[i] = plan_matches[-1].strip() if plan_matches else ""
+        ISs[i] = IS_matches[-1].strip() if IS_matches else ""
             
     return valids, actions, thoughts, plans, ISs

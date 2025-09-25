@@ -85,7 +85,7 @@ class MEM1Memory(BaseMemory):
                         internal_state = internal_state[:self.max_internal_state_length]
                         logger.warning(f"Truncated internal state to {self.max_internal_state_length} chars")
                 else:
-                    logger.warning(f"No internal state found in response for env {env_idx}")
+                    logger.warning(f"No internal state found in response for env {env_idx},remaining the last one")
                 self.current_step[env_idx] += 1  # Increment step count
         for env_idx, action in enumerate(record['action']):
             if env_idx < len(self.agent_last_actions):

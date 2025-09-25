@@ -547,8 +547,6 @@ class TravelPlannerEnvironmentManager(EnvironmentManagerBase):
         print(f"extract plan[0]: {plans[0]}")
         full_text_obs = self.build_text_obs(cur_obs=obs, plans=plans, init=False)
 
-        for i, info in enumerate(infos):
-            info["format_reward"] = valids[i]
 
         next_observations = {"text": full_text_obs, "image": None, "anchor": obs}
 
@@ -606,9 +604,6 @@ class TravelPlannerEnvironmentManager(EnvironmentManagerBase):
                 success["plan_reward (not score or success_rate)"].append(
                     float(info["plan_reward"])
                 )
-                success["format_reward (not score or success_rate)"].append(
-                    float(info["format_reward"])
-                )
                 return
 
 class MEM1TravelPlannerEnvironmentManager(EnvironmentManagerBase):
@@ -629,7 +624,6 @@ class MEM1TravelPlannerEnvironmentManager(EnvironmentManagerBase):
         self.queries = None
         self.max_turns = getattr(config.env, 'max_steps', 20)
         super().__init__(envs, projection_f, config)
-        # breakpoint()
 
 
     def _generate_empty_plan(self, day_count: int) -> str:
@@ -647,16 +641,20 @@ class MEM1TravelPlannerEnvironmentManager(EnvironmentManagerBase):
         obs, infos = self.envs.reset()
         self.queries = [info["info"] for info in infos]
         self.memory.reset(batch_size=len(obs))
+        plans = [self._generate_empty_plan(query["days"]) for query in self.queries]
 
         full_text_obs = self.build_text_obs(
             cur_obs=obs,
-            plans=[self._generate_empty_plan(query["days"]) for query in self.queries],
+            plans=plans,
             init=True,
         )
         return {"text": full_text_obs, "image": None, "anchor": obs}, infos
 
     def step(self, text_actions: List[str]):
         valid_text_format =[]
+        valid_plan_format =[]
+        valid_action =[]
+        valid_value_ratio=[]
         valids, actions, thoughts, plans,ISs = self.projection_f(text_actions)
         # import re
         # text_actions[0]=re.sub(r"<action>.*?</action>", "<action>Finish[]</action>", text_actions[0], flags=re.DOTALL)
@@ -666,18 +664,20 @@ class MEM1TravelPlannerEnvironmentManager(EnvironmentManagerBase):
 
         for i, info in enumerate(infos):
             valid_text_format.append(1 if actions[i]!="" and plans[i]!="" and ISs[i]!="" else 0)
-            info["format_reward"] = valid_text_format[i]
-
+            valid_plan_format.append(info['plan_format_reward'])
+            valid_action.append(1 if info['cur_action_is_valid'] else 0 )
+            valid_value_ratio.append(info['valid_value_ratio'])
+        anchors=[plans[i] for i in range(len(obs))]
         next_observations = {
-            "text": full_text_obs, 
-            "image": None, 
-            "anchor": obs
+            "text": full_text_obs,
+            "image": None,
+            "anchor": anchors
         }
 
         for i, info in enumerate(infos):
-            info['is_action_valid'] = to_numpy(valid_text_format[i])
+            info['is_action_valid'] = to_numpy(valid_text_format[i])& to_numpy(valid_action[i])& to_numpy(valid_plan_format[i])
         rewards = to_numpy(rewards)
-        rewards = rewards + 0.1*(to_numpy(valid_text_format) -1)  #对于不合格式的回复给予负奖励
+        rewards = rewards +0.1*to_numpy(valid_value_ratio)#+ 0.05*(to_numpy(valid_action)-1) + 0.1*(to_numpy(valid_plan_format) -1) #对于不合格式的回复给予负奖励（注：此负奖励约束以通过is_action_valid的惩罚项实现）
         dones = to_numpy(dones)
 
         return next_observations, rewards, dones, infos
@@ -709,6 +709,8 @@ class MEM1TravelPlannerEnvironmentManager(EnvironmentManagerBase):
                     observation=cur_obs[i],
                     last_action=last_act[i]
                 )
+                if self.max_turns - previous_step[i]==1:
+                    obs=obs+"\nCrucial Tips: This is your last step. You MUST give your complete plan between <plan></plan>, and MUST choose <action>Finish[]</action> as your action to end the episode, otherwise your task will fail completely!!!"
                 postprocess_text_obs.append(obs)
         # print(f"postprocess_text_obs[0]: {postprocess_text_obs[0]}")
         return postprocess_text_obs
@@ -725,6 +727,9 @@ class MEM1TravelPlannerEnvironmentManager(EnvironmentManagerBase):
                     valid_action_ratio
                 )
                 success["plan_reward (not score or success_rate)"].append(float(info["plan_reward"]))
+                success["finish_action_rate (not score or success_rate)"].append(float(info["finish"]))
+                success["valid_plan_format_rate (not score or success_rate)"].append(float(info["valid_plan_format_ratio"]))
+                success["fulfill rate (not score or success_rate)"].append(float(info["valid_value_ratio"]))
                 return
 
 def make_envs(config):
@@ -827,7 +832,7 @@ def make_envs(config):
             env_kwargs={"split": "train",'max_steps':config.env.max_steps},
         )
         _val_envs = build_travelplanner_envs(
-            seed=config.env.seed + 1000,
+            seed=config.env.seed,
             env_num=config.data.val_batch_size,
             group_n=1,
             is_train=False,
